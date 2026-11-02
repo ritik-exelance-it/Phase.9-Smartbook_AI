@@ -1,0 +1,121 @@
+id,title,genre,show_time,price,total_seats,booked_seats
+1,Aadarsha Kutumbam House No: 47 - AK 47,"Drama, Comedy, Family",10:00 AM,120,400,96
+2,Pyre,"Drama, Crime",12:30 PM,150,450,139
+3,Nakhrewaalii,"Romance, Drama, Comedy",3:00 PM,180,500,210
+4,Mirzapur: The Movie,"Thriller, Drama, Action",5:30 PM,200,550,302
+5,Baththa,"Thriller, Drama, Action",7:00 PM,220,600,378
+6,Don't Trouble The Trouble,"Fantasy, Drama, Comedy",9:30 PM,250,400,288
+7,Wicker,"Romance, Fantasy, Comedy",10:00 AM,120,450,171
+8,Meethe Mein Kya Hai,"Drama, Comedy, Family",12:30 PM,150,500,240
+9,Apocalypse Z: New World,"Thriller, Horror, Action",3:00 PM,180,550,445
+10,Immortal,"Thriller, Romance, Horror",5:30 PM,200,600,114
+11,Avaraachan & Sons,"Drama, Comedy, Family",7:00 PM,220,400,96
+12,Jailer 2,"Thriller, Drama, Comedy",9:30 PM,250,450,139
+13,Udta Teer,"Comedy, Action, Spy",10:00 AM,120,500,210
+14,Tu Hai Meri Kiran,"Thriller, Romance",12:30 PM,150,550,302
+15,Tum Mere Ho,"Romance, Drama, Action",3:00 PM,180,600,378
+16,Gajab Raat,"Thriller, Crime",5:30 PM,200,400,288
+17,The Paradise,"Thriller, Drama, Action",7:00 PM,220,450,171
+18,Sumo Didi,"Drama, Biography, Sports",9:30 PM,250,500,240
+19,Dorothy,"Thriller, Romance, Drama",10:00 AM,120,550,445
+20,Clayface,"Thriller, Horror, Action",12:30 PM,150,600,114
+21,The Invite,"Romance, Drama, Comedy",3:00 PM,180,400,96
+22,Little Thomas,"Drama, Comedy, Family",5:30 PM,200,450,139
+23,Prahaar - The Untold Story of Ujjwal Nikam,"Drama, Biopic",7:00 PM,220,500,210
+24,Nayyi Navelli,"Horror, Fantasy, Drama",9:30 PM,250,550,302
+25,Street Fighter,"Drama, Action, Adventure",10:00 AM,120,600,378
+26,Ranabaali,"History, Drama, Action",12:30 PM,150,400,288
+27,Enna Vilai,"Thriller, Drama, Social",3:00 PM,180,450,171
+28,Tenzing,"History, Drama",5:30 PM,200,500,240
+29,Masterplan,"Thriller, Comedy, Action",7:00 PM,220,550,445
+30,Lenin Pandiyan,"Romance, Drama, Action",9:30 PM,250,600,114
+31,Drishyam: The Conclusion,"Thriller, Drama, Mystery",10:00 AM,120,400,96
+32,Mandaadi,"Drama, Action, Sports",12:30 PM,150,450,139
+33,Reporting Live,"Thriller, Crime",3:00 PM,180,500,210
+34,Pradhama Dhrishtya Kuttakkar,"Thriller, Drama, Crime",5:30 PM,200,550,302
+35,Khalifa Part 1,"Thriller, Action, Crime",7:00 PM,220,600,378
+36,Maremma,"Drama, Action",9:30 PM,250,400,288
+37,Animals,"Thriller, Drama, Action",10:00 AM,120,450,171
+38,Other Mommy,"Thriller, Horror, Drama",12:30 PM,150,500,240
+39,Epic - First Semester,"Romance, Drama",3:00 PM,180,550,445
+40,Matchbox,"Comedy, Action, Adventure",5:30 PM,200,600,114
+41,Digger,"Drama, Comedy, Adventure",7:00 PM,220,400,96
+42,Sigma,"Drama, Comedy, Action",9:30 PM,250,450,139
+43,Prem Keetanu,"Romance, Drama, Comedy",10:00 AM,120,500,210
+44,The Third Murder,"Thriller, Mystery, Crime",12:30 PM,150,550,302
+45,Romanchakam,"Romance, Drama, Comedy",3:00 PM,180,600,378
+46,Pooja Meri Jaan,"Thriller, Romance, Drama",5:30 PM,200,400,288
+47,Bethlehem Kudumba Unit,"Romance, Drama, Comedy",7:00 PM,220,450,171
+48,Ohh My Dog,"Drama, Family",9:30 PM,250,500,240
+49,Sardar 2,"Thriller, Action, Spy",10:00 AM,120,550,445
+50,The Vvaan - Force of the Forrest,"Thriller, Action, Adventure",12:30 PM,150,600,114
+51,Avengers Endgame: Encore,"Adventure, Sci-Fi",3:00 PM,180,400,96
+52,Heart of the Beast,"Thriller, Drama, Action",5:30 PM,200,450,139
+53,Runner,"Thriller, Comedy, Action",7:00 PM,220,500,210
+54,Primetime,"Thriller, Drama, Crime",9:30 PM,250,550,302
+55,Modha Rathiri,"Drama, Comedy, Family",10:00 AM,120,600,378
+56,Mango Pachcha,"Drama, Action, Crime",12:30 PM,150,400,288
+57,Don't Be Shy!,"Romance, Drama, Comedy",3:00 PM,180,450,171
+58,Daayra,"Thriller, Drama, Crime",5:30 PM,200,500,240
+59,Vibe,"Drama, Comedy, Action",7:00 PM,220,550,445
+60,Practical Magic 2,"Fantasy, Drama, Comedy",9:30 PM,250,600,114
+61,Resident Evil,"Thriller, Horror, Action",10:00 AM,120,400,96
+62,The Uprising,"History, Drama, Action",12:30 PM,150,450,139
+63,Irumudi,"Drama, Action, Family",3:00 PM,180,500,210
+64,Thudakkam,"Drama, Action",5:30 PM,200,550,302
+65,Lust Stories 3,"Romance, Drama",7:00 PM,220,600,378
+66,Ram and Leela,"Romance, Fantasy, Comedy",9:30 PM,250,400,288
+67,You + Me - Against the World,"Romance, Horror, Drama",10:00 AM,120,450,171
+68,Last Man in Tower,"Thriller, Drama",12:30 PM,150,500,240
+69,Ghamasaan,"Thriller, Drama, Action",3:00 PM,180,550,445
+70,Drawn Together,"Thriller, Romance, Drama",5:30 PM,200,600,114
+71,Varavu,"Thriller, Action",7:00 PM,220,400,96
+72,Mahendragiri Varahi,"Thriller, Fantasy, Drama",9:30 PM,250,450,139
+73,Vishwanath & Sons,"Romance, Drama, Family",10:00 AM,120,500,210
+74,Jeevan Ya Bheema Con?,"Thriller, Comedy, Crime",12:30 PM,150,550,302
+75,I'm Game,"Thriller, Drama, Action",3:00 PM,180,600,378
+76,Dhamaal 4,"Comedy, Adventure",5:30 PM,200,400,288
+77,Gandhari,"Thriller, Drama, Action",7:00 PM,220,450,171
+78,GDN,"Drama, Biography",9:30 PM,250,500,240
+79,DC,"Thriller, Romance, Drama",10:00 AM,120,550,445
+80,The Runner,"Thriller, Drama, Action",12:30 PM,150,600,114
+81,Toxic: A Fairy Tale for Grown-ups,"Thriller, Drama, Action",3:00 PM,180,400,96
+82,Alpha,"Thriller, Action",5:30 PM,200,450,139
+83,Michael,"Music, Drama, Biography",7:00 PM,220,500,210
+84,Newton's 3rd Law,"Thriller, Drama, Family",9:30 PM,250,550,302
+85,Bandar,"Thriller, Drama, Crime",10:00 AM,120,600,378
+86,Anbe Diana,"Romance, Drama, Comedy",12:30 PM,150,400,288
+87,Babita Singh Reporting,"Thriller, Investigative Drama",3:00 PM,180,450,171
+88,The Whisper Man,"Thriller, Mystery, Crime",5:30 PM,200,500,240
+89,The Last Sunrise,"Romance, Drama",7:00 PM,220,550,445
+90,Welcome to the Jungle,"Comedy, Action, Crime",9:30 PM,250,600,114
+91,Jana Nayagan,"Thriller, Action, Politics",10:00 AM,120,400,96
+92,Insidious: Out of the Further,"Thriller, Horror, Mystery",12:30 PM,150,450,139
+93,Facing El Chapo,"Thriller, Drama, Action",3:00 PM,180,500,210
+94,Awarapan 2,"Romance, Drama, Action",5:30 PM,200,550,302
+95,Batwara 1947,"Drama, Action, Period",7:00 PM,220,600,378
+96,Jumper,"Thriller, Drama",9:30 PM,250,400,288
+97,Cocktail 2,"Romance, Drama, Comedy",10:00 AM,120,450,171
+98,The Last House,"Thriller, Horror, Science Fiction",12:30 PM,150,500,240
+99,Governor: The Silent Saviour,"Drama, Crime, Political Thriller",3:00 PM,180,550,445
+100,Bharat Bhhagya Viddhaata,"Thriller, Drama",5:30 PM,200,600,114
+101,Aryabhatt Ka Zero,"Drama, Comedy",7:00 PM,220,400,96
+102,Hanuman Ansh,"Drama, Biography, Crime",9:30 PM,250,450,139
+103,Main Vaapas Aaunga,"Romance, Drama, Romantic",10:00 AM,120,500,210
+104,Idhayam Murali,"Romance, Drama, Comedy",12:30 PM,150,550,302
+105,Oh..! Sukumari,"Romance, Fantasy, Drama",3:00 PM,180,600,378
+106,Lenin,"Romance, Drama, Action",5:30 PM,200,400,288
+107,Spider-Man: Brand New Day,"Action, Adventure, Sci-Fi",7:00 PM,220,450,171
+108,Bhai Tera Star Hai,"Drama, Comedy",9:30 PM,250,500,240
+109,Gatta Kusthi 2,"Drama, Comedy, Sports",10:00 AM,120,550,445
+110,Hai Jawani Toh Ishq Hona Hai,"Drama, Comedy",12:30 PM,150,600,114
+111,Rao Bahadur,"Thriller, Fantasy, Drama",3:00 PM,180,400,96
+112,Balan - The Boy,"Drama, Mystery",5:30 PM,200,450,139
+113,The Devil Wears Prada 2,"Drama, Comedy",7:00 PM,220,500,210
+114,The Devil's Mouth,"Thriller, Horror, Action",9:30 PM,250,550,302
+115,The India Story,"Drama, Crime, Social",10:00 AM,120,600,378
+116,Ishqnama,"Romance, Musical, Drama",12:30 PM,150,400,288
+117,Dulhaniya Le Aaeegi,"Drama, Comedy, Family",3:00 PM,180,450,171
+118,Tera Yaar Hoon Main,"Romance, Drama, Comedy",5:30 PM,200,500,240
+119,Indrajaal,"Thriller, Fantasy, Action",7:00 PM,220,550,445
+120,Uttar Da Puttar,"Drama, Comedy, Crime",9:30 PM,250,600,114
