@@ -12,6 +12,7 @@ DATA_DIR = Path(__file__).parent
 MOVIES_PATH = DATA_DIR / "movies_normalized.csv"
 SHOWTIMES_PATH = DATA_DIR / "showtimes_normalized.csv"
 SCHEMA_REVISION = "normalized-movie-showtime-schema-v1"
+ESCALATION_SUPPORT_REVISION = "support-escalation-slack-v1"
 CATALOG_REVISION = "normalized-catalog-2026-11-v1"
 BOOKING_IDEMPOTENCY_REVISION = "booking-idempotency-v1"
 EXPECTED_IDS = set(range(1, 121))
@@ -362,11 +363,41 @@ def _upgrade_persistent_schema() -> None:
             )
     Base.metadata.create_all(engine)
 
+def _upgrade_escalation_schema() -> None:
+    table_names = set(inspect(engine).get_table_names())
+    with engine.begin() as connection:
+        if "escalations" in table_names:
+            columns = {c["name"] for c in inspect(engine).get_columns("escalations")}
+            additions = {
+                "customer_name": "VARCHAR(150)",
+                "customer_email": "VARCHAR(254)",
+                "customer_phone": "VARCHAR(30)",
+                "preferred_contact_method": "VARCHAR(10)",
+                "contact_consent": "BOOLEAN NOT NULL DEFAULT 0",
+                "booking_id": "INTEGER",
+                "assigned_employee_id": "INTEGER",
+                "slack_status": "VARCHAR(20) NOT NULL DEFAULT 'pending'",
+                "slack_message_ts": "VARCHAR(50)",
+                "notification_error": "TEXT",
+                "updated_at": "DATETIME",
+            }
+            for column, sql_type in additions.items():
+                if column not in columns:
+                    connection.exec_driver_sql(
+                        f'ALTER TABLE escalations ADD COLUMN "{column}" {sql_type}'
+                    )
+        connection.exec_driver_sql(
+            "INSERT OR IGNORE INTO schema_migrations (revision) "
+            "VALUES (:revision)",
+            {"revision": ESCALATION_SUPPORT_REVISION},
+        )
 
 def initialize_database() -> None:
     movies, showtimes = _read_normalized_data()
     _migrate_normalized_schema_if_needed()
     _upgrade_persistent_schema()
+    _upgrade_escalation_schema()
+
     _import_catalog_if_needed(movies, showtimes)
     with engine.begin() as connection:
         _ensure_migration_table(connection)

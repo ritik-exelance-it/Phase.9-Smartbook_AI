@@ -1,0 +1,33 @@
+# Add a revision constant near the existing schema revision constants:
+ESCALATION_SUPPORT_REVISION = "support-escalation-slack-v1"
+
+# Add this function before initialize_database(), then call it from initialize_database()
+# immediately after _upgrade_persistent_schema().
+def _upgrade_escalation_schema() -> None:
+    table_names = set(inspect(engine).get_table_names())
+    with engine.begin() as connection:
+        if "escalations" in table_names:
+            columns = {c["name"] for c in inspect(engine).get_columns("escalations")}
+            additions = {
+                "customer_name": "VARCHAR(150)",
+                "customer_email": "VARCHAR(254)",
+                "customer_phone": "VARCHAR(30)",
+                "preferred_contact_method": "VARCHAR(10)",
+                "contact_consent": "BOOLEAN NOT NULL DEFAULT 0",
+                "booking_id": "INTEGER",
+                "assigned_employee_id": "INTEGER",
+                "slack_status": "VARCHAR(20) NOT NULL DEFAULT 'pending'",
+                "slack_message_ts": "VARCHAR(50)",
+                "notification_error": "TEXT",
+                "updated_at": "DATETIME",
+            }
+            for column, sql_type in additions.items():
+                if column not in columns:
+                    connection.exec_driver_sql(
+                        f'ALTER TABLE escalations ADD COLUMN "{column}" {sql_type}'
+                    )
+        connection.exec_driver_sql(
+            "INSERT OR IGNORE INTO schema_migrations (revision) "
+            "VALUES (:revision)",
+            {"revision": ESCALATION_SUPPORT_REVISION},
+        )

@@ -139,6 +139,16 @@ class ConversationMessage(Base):
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
 
+class SupportEmployee(Base):
+    __tablename__ = "support_employees"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(150), nullable=False)
+    team: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    email: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    slack_user_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    max_open_tickets: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 class Escalation(Base):
     __tablename__ = "escalations"
@@ -150,7 +160,23 @@ class Escalation(Base):
     details: Mapped[str] = mapped_column(Text, default="")
     priority: Mapped[str] = mapped_column(String(20), default="normal")
     status: Mapped[str] = mapped_column(String(30), default="pending")
+    customer_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    customer_email: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    customer_phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    preferred_contact_method: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    contact_consent: Mapped[bool] = mapped_column(default=False, nullable=False)
+    booking_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    assigned_employee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("support_employees.id"), nullable=True, index=True
+    )
+    slack_status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    slack_message_ts: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    notification_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+    assigned_employee: Mapped[SupportEmployee | None] = relationship()
 
 
 def init_db() -> None:
