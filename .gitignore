@@ -7,4 +7,6 @@ __pycache__/
 venv/
 .pytest_cache/
 *-shm
-*-wal
+*.bak
+*.sqlite-shm
+*.sqlite-wal

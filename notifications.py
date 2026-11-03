@@ -55,87 +55,110 @@ def send_escalation_to_slack(escalation: dict[str, Any]) -> dict[str, Any]:
 
 
 def _safe_value(value: Any, fallback: str = "Not provided", limit: int = 2000) -> str:
-        if value is None or not str(value).strip():
-            return fallback
-        # Slack mrkdwn is not HTML; escape angle brackets to prevent accidental links/mentions.
-        return str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")[:limit]
+    if value is None or not str(value).strip():
+        return fallback
+    # Slack mrkdwn is not HTML; escape angle brackets to prevent accidental links/mentions.
+    return str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")[:limit]
 
 
 def _contact_values(ticket: dict[str, Any]) -> tuple[str, str, str, str]:
-        if not ticket.get("contact_consent"):
-            withheld = "Withheld (no consent)"
-            return withheld, withheld, withheld, withheld
-        return (
-            _safe_value(ticket.get("customer_name")),
-            _safe_value(ticket.get("customer_email")),
-            _safe_value(ticket.get("customer_phone")),
-            _safe_value(ticket.get("preferred_contact_method")),
-        )
+    if not ticket.get("contact_consent"):
+        withheld = "Not shared (no consent)"
+        return withheld, withheld, withheld, withheld
+    return (
+        _safe_value(ticket.get("customer_name")),
+        _safe_value(ticket.get("customer_email")),
+        _safe_value(ticket.get("customer_phone")),
+        _safe_value(ticket.get("preferred_contact_method")),
+    )
 
 
 def build_escalation_blocks(ticket: dict[str, Any]) -> list[dict[str, Any]]:
-        """Build a Slack Block Kit message, withholding contact details without consent."""
-        customer_name, customer_email, customer_phone, preferred_contact = _contact_values(ticket)
-        employee = _safe_value(ticket.get("assigned_employee_name"), "Unassigned")
-        employee_code = _safe_value(ticket.get("assigned_employee_code"), "Not provided")
+    """Build a compact Slack summary, withholding contact details without consent."""
+    customer_name, customer_email, customer_phone, preferred_contact = _contact_values(ticket)
+    employee = _safe_value(ticket.get("assigned_employee_name"), "Unassigned")
+    employee_code = _safe_value(ticket.get("assigned_employee_code"), "Not provided")
+    team = _safe_value(ticket.get("assigned_team"), "Unassigned").replace("_", " ").title()
+    customer = _safe_value(ticket.get("user_id"))
+    if ticket.get("contact_consent"):
+        customer = f"{customer}\nName: {customer_name}"
+        contact = " | ".join(
+            value for value in (customer_email, customer_phone, preferred_contact)
+            if value != "Not provided"
+        ) or "No contact method provided"
+    else:
+        contact = "Contact details not shared (no consent)"
 
-        fields = [
-            ("Ticket", f"#{_safe_value(ticket.get('escalation_id'))}"),
-            ("Category", _safe_value(ticket.get("reason"))),
-            ("Priority", _safe_value(ticket.get("priority"))),
-            ("Status", _safe_value(ticket.get("status"))),
-            ("Customer ID", _safe_value(ticket.get("user_id"))),
-            ("Customer name", customer_name),
-            ("Email", customer_email),
-            ("Phone", customer_phone),
-            ("Preferred contact", preferred_contact),
-            ("Assigned employee", f"{employee} ({employee_code})"),
-            ("Assigned team", _safe_value(ticket.get("assigned_team"), "Unassigned")),
-            ("Booking ID", _safe_value(ticket.get("booking_id"))),
-        ]
-
-        blocks: list[dict[str, Any]] = [
-            {
-                "type": "header",
-                "text": {
-                    "type": "plain_text",
-                    "text": f"New SmartBook support escalation #{_safe_value(ticket.get('escalation_id'), limit=100)}",
-                },
-            }
-        ]
-        for start in range(0, len(fields), 10):
-            blocks.append({
-                "type": "section",
-                "fields": [
-                    {"type": "mrkdwn", "text": f"*{label}*\n{value}"}
-                    for label, value in fields[start:start + 10]
-                ],
-            })
-        blocks.extend([
-            {"type": "section", "text": {"type": "mrkdwn", "text": "*Issue details*"}},
-            {"type": "section", "text": {"type": "mrkdwn", "text": _safe_value(
-                ticket.get("details"), "No additional details provided."
-            )}},
-        ])
-        return blocks
+    fields = [
+        ("Category", _safe_value(ticket.get("reason")).replace("_", " ").title()),
+        ("Priority", _safe_value(ticket.get("priority")).title()),
+        ("Status", _safe_value(ticket.get("status")).replace("_", " ").title()),
+        ("Booking", f"#{_safe_value(ticket.get('booking_id'))}" if ticket.get("booking_id") else "Not provided"),
+    ]
+    blocks: list[dict[str, Any]] = [
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": f"Support escalation #{_safe_value(ticket.get('escalation_id'), limit=100)}",
+            },
+        },
+        {
+            "type": "section",
+            "fields": [
+                {"type": "mrkdwn", "text": f"*{label}*\n{value}"}
+                for label, value in fields
+            ],
+        },
+        {
+            "type": "section",
+            "fields": [
+                {"type": "mrkdwn", "text": f"*Assigned to*\n{employee} ({employee_code})"},
+                {"type": "mrkdwn", "text": f"*Team*\n{team}"},
+            ],
+        },
+        {
+            "type": "section",
+            "fields": [
+                {"type": "mrkdwn", "text": f"*Customer*\n{customer}"},
+                {"type": "mrkdwn", "text": f"*Contact*\n{contact}"},
+            ],
+        },
+        {"type": "divider"},
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*Issue details*\n{_safe_value(ticket.get('details'), 'No additional details provided.')}",
+            },
+        },
+    ]
+    return blocks
 
 
 def _slack_message(ticket: dict[str, Any]) -> str:
-        customer_name, customer_email, customer_phone, preferred_contact = _contact_values(ticket)
-        lines = [
-            f"*New SmartBook support escalation — #{_safe_value(ticket.get('escalation_id'))}*",
-            f"*Category:* {_safe_value(ticket.get('reason'))}",
-            f"*Priority:* {_safe_value(ticket.get('priority'))}",
-            f"*Status:* {_safe_value(ticket.get('status'))}",
-            f"*Customer ID:* {_safe_value(ticket.get('user_id'))}",
-            f"*Customer name:* {customer_name}",
-            f"*Preferred contact:* {preferred_contact}",
-            f"*Email:* {customer_email}",
-            f"*Phone:* {customer_phone}",
-            f"*Assigned employee:* {_safe_value(ticket.get('assigned_employee_name'), 'Unassigned')}",
-            f"*Assigned team:* {_safe_value(ticket.get('assigned_team'), 'Unassigned')}",
-            f"*Booking ID:* {_safe_value(ticket.get('booking_id'))}",
-            "*Issue details:*",
-            _safe_value(ticket.get("details"), "No additional details provided."),
-        ]
-        return "\n".join(lines)
+    customer_name, customer_email, customer_phone, preferred_contact = _contact_values(ticket)
+    lines = [
+        f"*Support escalation #{_safe_value(ticket.get('escalation_id'))}*",
+        (
+            f"*Category:* {_safe_value(ticket.get('reason')).replace('_', ' ').title()}  "
+            f"*Priority:* {_safe_value(ticket.get('priority')).title()}  "
+            f"*Status:* {_safe_value(ticket.get('status')).replace('_', ' ').title()}"
+        ),
+        (
+            f"*Assigned to:* {_safe_value(ticket.get('assigned_employee_name'), 'Unassigned')} "
+            f"({_safe_value(ticket.get('assigned_employee_code'), 'Not provided')}) | "
+            f"{_safe_value(ticket.get('assigned_team'), 'Unassigned').replace('_', ' ').title()}"
+        ),
+        f"*Booking:* #{_safe_value(ticket.get('booking_id'))}" if ticket.get("booking_id") else "*Booking:* Not provided",
+        f"*Customer:* {_safe_value(ticket.get('user_id'))}",
+    ]
+    if ticket.get("contact_consent"):
+        lines.extend([
+            f"*Name:* {customer_name}",
+            f"*Contact:* {' | '.join((customer_email, customer_phone, preferred_contact))}",
+        ])
+    else:
+        lines.append("*Contact:* Not shared (no consent)")
+    lines.extend(["", "*Issue details*", _safe_value(ticket.get("details"), "No additional details provided.")])
+    return "\n".join(lines)

@@ -16,8 +16,13 @@ class SlackBlockKitTests(unittest.TestCase):
         })
         self.assertEqual(blocks[0]["type"], "header")
         rendered = str(blocks)
-        for value in ("Khushi Patel", "EMP002", "r@example.com", "9999999999", "payment_refund", "Refund not credited"):
+        for value in ("Khushi Patel", "EMP002", "r@example.com", "9999999999", "Payment Refund", "Refund not credited"):
             self.assertIn(value, rendered)
+        self.assertEqual(blocks[1]["type"], "section")
+        self.assertEqual(len(blocks[1]["fields"]), 4)
+        self.assertEqual(blocks[2]["type"], "section")
+        self.assertEqual(len(blocks[2]["fields"]), 2)
+        self.assertEqual(blocks[4]["type"], "divider")
 
     def test_contacts_are_redacted_without_consent(self):
         rendered = str(build_escalation_blocks({
@@ -27,6 +32,7 @@ class SlackBlockKitTests(unittest.TestCase):
         self.assertNotIn("private@example.com", rendered)
         self.assertNotIn("9999999999", rendered)
         self.assertNotIn("Private Name", rendered)
+        self.assertEqual(rendered.count("Contact details not shared (no consent)"), 1)
 
     def test_slack_sender_posts_blocks_and_redacts_contacts_without_consent(self):
         slack_sdk = ModuleType("slack_sdk")
