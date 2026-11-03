@@ -29,6 +29,7 @@ class BookingOperationTests(unittest.TestCase):
             bind=self.engine,
             expire_on_commit=False,
         )
+        self.screening_date = date.today() + timedelta(days=7)
         with self.session_factory.begin() as session:
             movie = Movie(movie_id=1, title="Pyre", genre="Drama, Crime")
             session.add(movie)
@@ -36,8 +37,8 @@ class BookingOperationTests(unittest.TestCase):
                 Showtime(
                     showtime_id=1,
                     movie_id=1,
-                    date=date(2026, 11, 3),
-                    day_of_week="Tuesday",
+                    date=self.screening_date,
+                    day_of_week=self.screening_date.strftime("%A"),
                     screen_number="Screen 1",
                     time=time(12, 30),
                     price=150,
@@ -195,8 +196,8 @@ class BookingOperationTests(unittest.TestCase):
                 Showtime(
                     showtime_id=2,
                     movie_id=1,
-                    date=date(2026, 11, 3),
-                    day_of_week="Tuesday",
+                    date=self.screening_date,
+                    day_of_week=self.screening_date.strftime("%A"),
                     screen_number="Screen 1",
                     time=time(15, 30),
                     price=150,
@@ -237,8 +238,14 @@ class BookingOperationTests(unittest.TestCase):
                 config={"configurable": {"thread_id": thread_id}},
             )
 
-        self.assertIn("1. Tuesday 2026-11-03 at 12:30", first["response"])
-        self.assertIn("2. Tuesday 2026-11-03 at 15:30", first["response"])
+        self.assertIn(
+            f"1. {self.screening_date.strftime('%A')} {self.screening_date.isoformat()} at 12:30",
+            first["response"],
+        )
+        self.assertIn(
+            f"2. {self.screening_date.strftime('%A')} {self.screening_date.isoformat()} at 15:30",
+            first["response"],
+        )
         self.assertIn("Please confirm this booking", second["response"])
         self.assertIn("Booking confirmed:", third["response"])
         with self.session_factory() as session:

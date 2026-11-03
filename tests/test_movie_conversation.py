@@ -82,12 +82,13 @@ class MovieConversationTests(unittest.TestCase):
 
     def test_booking_details_can_be_provided_across_turns(self):
         thread_id = f"ticket-follow-up-{uuid4()}"
+        screening_date = date.today() + timedelta(days=7)
         booking = {
             "status": "confirmed",
             "booking_id": 42,
             "movie": "Pyre",
-            "date": "2026-11-03",
-            "day_of_week": "Tuesday",
+            "date": screening_date.isoformat(),
+            "day_of_week": screening_date.strftime("%A"),
             "screen_number": "Screen 1",
             "show_time": "12:30",
             "seats": 2,
@@ -100,8 +101,8 @@ class MovieConversationTests(unittest.TestCase):
                 "genre": "Drama, Crime",
                 "showtimes": [{
                     "showtime_id": 1,
-                    "date": "2026-11-03",
-                    "day_of_week": "Tuesday",
+                    "date": screening_date.isoformat(),
+                    "day_of_week": screening_date.strftime("%A"),
                     "time": "12:30",
                     "screen_number": "Screen 1",
                     "available_seats": 5,
@@ -564,12 +565,13 @@ class MovieConversationTests(unittest.TestCase):
 
     def test_booking_confirmation_is_a_separate_turn(self):
         thread_id = f"booking-confirmation-{uuid4()}"
+        screening_date = date.today() + timedelta(days=7)
         booking = {
             "status": "confirmed",
             "booking_id": 43,
             "movie": "Pyre",
-            "date": "2026-11-03",
-            "day_of_week": "Tuesday",
+            "date": screening_date.isoformat(),
+            "day_of_week": screening_date.strftime("%A"),
             "screen_number": "Screen 1",
             "show_time": "12:30",
             "seats": 2,
@@ -577,8 +579,8 @@ class MovieConversationTests(unittest.TestCase):
         }
         screening = {
             "showtime_id": 1,
-            "date": "2026-11-03",
-            "day_of_week": "Tuesday",
+            "date": screening_date.isoformat(),
+            "day_of_week": screening_date.strftime("%A"),
             "time": "12:30",
             "screen_number": "Screen 1",
             "available_seats": 5,
@@ -597,7 +599,10 @@ class MovieConversationTests(unittest.TestCase):
         ):
             request = agent.agent.invoke(
                 {
-                    "user_message": "Book two tickets for Pyre under the name Sam on 2026-11-03 at 12:30 PM",
+                    "user_message": (
+                        f"Book two tickets for Pyre under the name Sam on "
+                        f"{screening_date.isoformat()} at 12:30 PM"
+                    ),
                     "user_id": "test-user",
                     "role": "customer",
                     "conversation_id": thread_id,
@@ -623,12 +628,13 @@ class MovieConversationTests(unittest.TestCase):
 
     def test_partial_movie_name_in_booking_requires_title_confirmation(self):
         thread_id = f"partial-title-booking-{uuid4()}"
+        screening_date = date.today() + timedelta(days=7)
         booking = {
             "status": "confirmed",
             "booking_id": 44,
             "movie": "Spider-Man: Brand New Day",
-            "date": "2026-11-03",
-            "day_of_week": "Tuesday",
+            "date": screening_date.isoformat(),
+            "day_of_week": screening_date.strftime("%A"),
             "screen_number": "Screen 1",
             "show_time": "12:30",
             "seats": 2,
@@ -641,8 +647,8 @@ class MovieConversationTests(unittest.TestCase):
                 "genre": "Action, Adventure, Sci-Fi",
                 "showtimes": [{
                     "showtime_id": 7,
-                    "date": "2026-11-03",
-                    "day_of_week": "Tuesday",
+                    "date": screening_date.isoformat(),
+                    "day_of_week": screening_date.strftime("%A"),
                     "time": "12:30",
                     "screen_number": "Screen 1",
                     "available_seats": 5,

@@ -5,6 +5,8 @@ import re
 from typing import Literal
 from pydantic import BaseModel, Field
 
+from contact_validation import normalize_email, normalize_phone
+
 
 class EscalationIntentAnalysis(BaseModel):
     category: Literal["booking", "cancellation", "payment_refund", "technical", "account_profile", "general"] = "general"
@@ -52,11 +54,17 @@ def _fallback_extract(message: str) -> dict:
 
 
 def _valid_email(value: str | None) -> bool:
-    return bool(value and re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value.strip()))
+    try:
+        return normalize_email(value) is not None
+    except ValueError:
+        return False
 
 
 def _valid_phone(value: str | None) -> bool:
-    return bool(value and 7 <= len(re.sub(r"\D", "", value)) <= 15)
+    try:
+        return normalize_phone(value) is not None
+    except ValueError:
+        return False
 
 
 def begin_escalation(message: str, analysis_llm) -> dict:
@@ -81,9 +89,13 @@ def begin_escalation(message: str, analysis_llm) -> dict:
     for key in ("customer_email", "customer_phone", "booking_id"):
         if not data.get(key):
             data[key] = fallback.get(key)
-    if not _valid_email(data.get("customer_email")):
+    try:
+        data["customer_email"] = normalize_email(data.get("customer_email"))
+    except ValueError:
         data["customer_email"] = None
-    if not _valid_phone(data.get("customer_phone")):
+    try:
+        data["customer_phone"] = normalize_phone(data.get("customer_phone"))
+    except ValueError:
         data["customer_phone"] = None
     if data.get("booking_id") is not None:
         try:
@@ -170,15 +182,22 @@ def continue_escalation(draft: dict, message: str) -> dict:
             match = re.search(r"[^\s@]+@[^\s@]+\.[^\s@]+", answer)
             if not match:
                 return _prompt_state({**draft, "step": "email"}) | {"result_data": {"message": "Please enter a valid email address or reply 'skip'."}}
-            draft["customer_email"] = match.group(0)[:254]
+            try:
+                draft["customer_email"] = normalize_email(match.group(0))
+            except ValueError:
+                return _prompt_state({**draft, "step": "email"}) | {
+                    "result_data": {"message": "Please enter a valid email address or reply 'skip'."}
+                }
         draft["step"] = _next_step_after(draft, "email")
     elif step == "phone":
         if normalized not in skip:
-            phone = extracted.get("customer_phone")
-            digits = re.sub(r"\D", "", phone or answer)
-            if not 7 <= len(digits) <= 15:
-                return _prompt_state({**draft, "step": "phone"}) | {"result_data": {"message": "Please enter a valid phone number or reply 'skip'."}}
-            draft["customer_phone"] = (phone or answer)[:30]
+            phone = extracted.get("customer_phone") or answer
+            try:
+                draft["customer_phone"] = normalize_phone(phone)
+            except ValueError:
+                return _prompt_state({**draft, "step": "phone"}) | {
+                    "result_data": {"message": "Please enter a valid phone number with country code if needed, or reply 'skip'."}
+                }
         draft["step"] = "preferred_contact" if draft.get("customer_email") or draft.get("customer_phone") else "consent"
     elif step == "preferred_contact":
         choice = normalized.replace("by ", "").strip()

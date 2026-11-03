@@ -1,7 +1,8 @@
 """Escalation persistence, global employee round robin, and Slack delivery."""
 from __future__ import annotations
-import re
 from typing import Any
+
+from contact_validation import normalize_email, normalize_phone
 from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
 from models import Escalation, SessionLocal, SupportEmployee, SupportAssignmentState, utc_now
@@ -48,13 +49,15 @@ def create_support_escalation(*, user_id: str, conversation_id: str, category: s
             booking_id = int(booking_id)
             if booking_id < 1: booking_id = None
         except (TypeError, ValueError): booking_id = None
-    customer_email = (customer_email or "").strip()[:254] or None
-    customer_phone = (customer_phone or "").strip()[:30] or None
+    try:
+        customer_email = normalize_email(customer_email)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    try:
+        customer_phone = normalize_phone(customer_phone)
+    except ValueError as exc:
+        return {"error": str(exc)}
     customer_name = (customer_name or "").strip()[:150] or None
-    if customer_email and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", customer_email):
-        return {"error": "The email address is invalid. Please correct it or skip it."}
-    if customer_phone and not 7 <= len(re.sub(r"\D", "", customer_phone)) <= 15:
-        return {"error": "The phone number is invalid. Please correct it or skip it."}
     if preferred_contact_method not in {None, "email", "phone"}:
         preferred_contact_method = None
     if preferred_contact_method == "email" and not customer_email: preferred_contact_method = None
