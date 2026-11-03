@@ -13,6 +13,7 @@ from datetime import date, datetime, time, timedelta
 from typing import Literal, Optional, TypedDict
 
 from escalation_service import create_support_escalation
+from escalation_flow import EscalationIntentAnalysis, begin_escalation, continue_escalation
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
@@ -149,6 +150,7 @@ class ClassifiedIntent(BaseModel):
 model_name = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 llm = ChatOpenRouter(model=model_name, temperature=0, max_retries=2,timeout=30*1_000,)
 classifier_llm = llm.with_structured_output(ClassifiedIntent)
+escalation_analysis_llm = llm.with_structured_output(EscalationIntentAnalysis)
 
 checkpoint_path = Path(
     os.getenv(
@@ -695,98 +697,10 @@ def classify_node(state: AgentState) -> dict:
 
     escalation_draft = state.get("escalation_draft", {})
     if escalation_draft:
-        draft = dict(escalation_draft)
-        answer = message.strip()
-        step = draft.get("step", "details")
-        if normalized in {"cancel", "stop", "never mind", "nevermind", "no thanks"}:
-            return {
-                "intent": "general",
-                "escalation_draft": {},
-                "escalation_pending": False,
-                "result_data": {
-                    "message": "Okay, I cancelled the support request. No ticket was created."
-                },
-                "pending_action": None,
-                "error": "",
-            }
-        if step == "details":
-            draft["details"] = answer[:4000]
-            draft["step"] = "contact_method"
-        elif step == "contact_method":
-            choice = normalized.replace("by ", "")
-            if choice not in {"email", "phone"}:
-                return {
-                    "intent": "general",
-                    "escalation_draft": draft,
-                    "escalation_pending": True,
-                    "result_data": {
-                        "message": "Would you prefer the support team to contact you by email or phone?"
-                    },
-                    "pending_action": None,
-                    "error": "",
-                }
-            draft["preferred_contact_method"] = choice
-            draft["step"] = "contact_value"
-        elif step == "contact_value":
-            if draft.get("preferred_contact_method") == "email":
-                draft["customer_email"] = answer
-            else:
-                draft["customer_phone"] = answer
-            draft["step"] = "consent"
-        elif step == "consent":
-            if normalized not in {"yes", "yes please", "i agree", "agree", "i consent"}:
-                if normalized in {"no", "no thanks", "i do not consent"}:
-                    draft["contact_consent"] = False
-                    draft["customer_email"] = None
-                    draft["customer_phone"] = None
-                    draft["preferred_contact_method"] = None
-                    draft["step"] = "confirm"
-                else:
-                    return {
-                        "intent": "general",
-                        "escalation_draft": draft,
-                        "escalation_pending": True,
-                        "result_data": {
-                            "message": (
-                                "Please reply yes or no: may I share these contact "
-                                "details with our support team?"
-                            )
-                        },
-                        "pending_action": None,
-                        "error": "",
-                    }
-            else:
-                draft["contact_consent"] = True
-                draft["step"] = "confirm"
-        elif step == "confirm":
-            if normalized not in {"yes", "yes please", "confirm", "create ticket", "go ahead"}:
-                return {
-                    "intent": "general",
-                    "escalation_draft": draft,
-                    "escalation_pending": True,
-                    "result_data": {
-                        "message": "Please reply yes to create this support ticket, or cancel to stop."
-                    },
-                    "pending_action": None,
-                    "error": "",
-                }
-            draft["step"] = "submit"
-            return {
-                "intent": "escalate",
-                "escalation_draft": draft,
-                "escalation_pending": False,
-                "error": "",
-                "pending_action": None,
-            }
-        prompts = {"details": "Please briefly describe the issue you want human support to handle.", "contact_method": "Would you prefer the support team to contact you by email or phone?", "contact_value": f"Please provide your {draft.get('preferred_contact_method')} address or number.", "consent": "May I share these details with our assigned support team so they can follow up? Reply yes or no.", "confirm": "I have the details. Reply yes to create your support ticket, or cancel to stop."}
-        return {
-            "intent": "general",
-            "escalation_draft": draft,
-            "escalation_pending": True,
-            "result_data": {"message": prompts[draft["step"]]},
-            "pending_action": None,
-            "error": "",
-        }
+        result = continue_escalation(escalation_draft, message)
+        if result.get("intent") != "escalate":
+            result["intent"] = "escalation_followup"
+        return result
 
     booking_draft = state.get("booking_draft", {})
     if (
@@ -1294,23 +1208,11 @@ def classify_node(state: AgentState) -> dict:
         }
 
     if re.search(r"\b(human|person|agent|support|escalat)\b", normalized) and re.search(
-        r"\b(speak|talk|connect|human|help|support|escalat)\b",
-        normalized,
+        r"\b(speak|talk|connect|human|help|support|escalat)\b", normalized,
     ):
-        draft = {"category": "general", "details": "", "step": "details"}
-        return {
-            "intent": "general",
-            "escalation_draft": draft,
-            "escalation_pending": True,
-            "result_data": {
-                "message": (
-                    "I can connect you with human support. "
-                    "Please briefly describe the issue."
-                )
-            },
-            "pending_action": None,
-            "error": "",
-        }
+        result = begin_escalation(message, escalation_analysis_llm)
+        result["intent"] = "escalation_followup"
+        return result
 
     try:
         parsed = ClassifiedIntent.model_validate(
@@ -1341,6 +1243,11 @@ def classify_node(state: AgentState) -> dict:
             },
             "error": "Intent classification failed.",
         }
+
+    if parsed.intent == "escalate":
+        result = begin_escalation(message, escalation_analysis_llm)
+        result["intent"] = "escalation_followup"
+        return result
 
     movie_id = parsed.movie_id
     movie_title = parsed.movie_title
@@ -1408,7 +1315,9 @@ def execute_node(state: AgentState) -> dict:
         }
 
     try:
-        if intent == "list_movies":
+        if intent == "escalation_followup":
+            data = state.get("result_data") or {}
+        elif intent == "list_movies":
             data = list_movies(
                 role,
                 genre=state.get("movie_genre"),
@@ -1772,11 +1681,13 @@ def execute_node(state: AgentState) -> dict:
                 conversation_id=state.get("conversation_id", "default"),
                 category=draft.get("category", "general"),
                 details=draft.get("details", state.get("user_message", "")),
+                priority=draft.get("priority", "normal"),
                 customer_name=draft.get("customer_name"),
                 customer_email=draft.get("customer_email"),
                 customer_phone=draft.get("customer_phone"),
                 preferred_contact_method=draft.get("preferred_contact_method"),
                 contact_consent=draft.get("contact_consent", False),
+                booking_id=draft.get("booking_id"),
             )
             return {
                 "result_data": data,

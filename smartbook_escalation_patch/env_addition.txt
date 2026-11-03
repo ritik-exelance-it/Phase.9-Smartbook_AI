@@ -1,3 +1,0 @@
-# Slack support escalation notifications
-SLACK_BOT_TOKEN=
-SLACK_ESCALATION_CHANNEL_ID=

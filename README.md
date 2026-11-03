@@ -41,7 +41,7 @@ The CLI defaults to `customer`. The role is supplied by application code and sho
 
 ## Human support escalations (Slack)
 
-SmartBook can record a human-support escalation in SQLite, assign it to an active employee from `support_employees`, and post a notification to the configured Slack channel. The escalation record is committed before Slack delivery is attempted. A Slack failure therefore does not delete the support ticket; its `slack_status` is stored as `failed` for later inspection.
+SmartBook can record a human-support escalation in SQLite, assign it to an active employee from `support_employees`, and post a notification to the configured Slack channel. This queues a support ticket; it does not establish a live chat or confirm that an employee has responded. The escalation record is committed before Slack delivery is attempted. A Slack failure therefore does not delete the support ticket; its `slack_status` is stored as `failed` for later inspection.
 
 ### Configure Slack
 
@@ -68,7 +68,7 @@ The Slack channel should be private to staff who are authorized to handle custom
 - A failed Slack notification is retained as a failed status; this initial implementation does not yet provide a retry queue or email fallback.
 - Cancellation records a booking cancellation only; it does not issue an actual payment refund.
 
-## Planned features
+## V 2.1 features
 
 ### Email notification fallback
 
@@ -97,3 +97,23 @@ The Slack channel should be private to staff who are authorized to handle custom
 - Track pending, succeeded, and failed refunds and notify customers only from verified provider results.
 
 These are roadmap items, not implemented functionality. The current booking cancellation operation must not be described as a payment refund.
+
+## Updated support escalation implementation
+
+- The agent extracts issue category, priority, customer name, email, phone and booking ID from the initial request before asking follow-up questions. AI output is constrained to supported categories and priorities; deterministic validation/fallbacks handle malformed or missing values.
+- Missing name, email and phone fields are asked separately and can each be skipped. Details included in later replies are extracted too, so repeating the issue while answering a follow-up does not overwrite the name or lose the email/booking ID. Preferred contact is captured only when a corresponding contact method was supplied. The customer is asked for explicit consent before email/phone/name are included in Slack. Voluntarily supplied contact details remain in the escalation record even when Slack sharing is declined.
+- Seven demo support employees are seeded idempotently: EMP001 Ritik Mishra, EMP002 Khushi Patel, EMP003 Sairam Madduri, EMP004 Anshika Dixit, EMP005 Akash Sahoo, EMP006 Devyani Patil, EMP007 Ayush Singh. Demo emails use the reserved non-deliverable `example.invalid` domain and must be replaced with verified addresses before any employee email workflow is added.
+- New tickets use a persistent global round-robin pointer across the active seeded employees, independent of category. The ticket is committed before Slack delivery; notification failures remain visible in `slack_status`. Duplicate open tickets in the same customer/conversation do not consume another assignment slot.
+- Slack messages use Block Kit and include ticket/category/priority, customer and booking details, assignment, issue summary and consent status. Keep the destination channel private and limited to authorized support staff.
+
+### Future roadmap (not implemented)
+
+**Email fallback:** add verified employee email addresses, configurable recipient mapping, Slack-failure fallback, retry/backoff, delivery audit records and alerting for failed notifications.
+
+**Human-support workspace:** add authenticated employee sign-in, ticket inbox, search/filter, employee reassignment, internal notes, status transitions, SLA tracking, customer-visible status and resolution analytics.
+
+**Billing and payment verification:** integrate a payment provider's server-side API and signed webhooks; reconcile transaction references with booking records; expose read-only verified billing inquiry tools. Never store card numbers, CVV, OTPs or payment credentials.
+
+**Real refund execution:** add eligibility checks against verified provider records, employee approval, provider refund API execution, idempotency, audit history, pending/succeeded/failed states and customer notification based only on provider-confirmed outcomes. Cancellation in the current demo is not a refund.
+
+These roadmap items are future work and are not part of this patch.

@@ -1,184 +1,109 @@
-"""Persistence and routing for customer human-support escalations."""
+"""Escalation persistence, global employee round robin, and Slack delivery."""
 from __future__ import annotations
-
 import re
 from typing import Any
-
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
-
-from models import Escalation, SessionLocal, SupportEmployee, utc_now
+from models import Escalation, SessionLocal, SupportEmployee, SupportAssignmentState, utc_now
 from notifications import send_escalation_to_slack
 
-VALID_CATEGORIES = {
-    "booking": "booking_support",
-    "payment": "billing_support",
-    "billing": "billing_support",
-    "technical": "technical_support",
-    "customer_support": "customer_support",
-    "general": "customer_support",
-}
+VALID_CATEGORIES = {"booking", "cancellation", "payment_refund", "technical", "account_profile", "general"}
+VALID_PRIORITIES = {"low", "normal", "high", "urgent"}
 
 
-def _valid_contact(method: str | None, email: str | None, phone: str | None) -> tuple[bool, str | None]:
-    method = (method or "").strip().casefold()
-    if method not in {"email", "phone"}:
-        return False, "Please choose email or phone as your preferred contact method."
-    if method == "email":
-        candidate = (email or "").strip()
-        if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", candidate):
-            return False, "Please provide a valid email address."
-    if method == "phone":
-        digits = re.sub(r"\D", "", phone or "")
-        if not 7 <= len(digits) <= 15:
-            return False, "Please provide a valid phone number, including the country code when needed."
-    return True, None
-
-
-def _assign_employee(session, category: str) -> SupportEmployee | None:
-    team = VALID_CATEGORIES.get(category.casefold(), "customer_support")
-    # Small deterministic least-loaded assignment. If no employee is configured,
-    # leave the ticket unassigned rather than inventing an employee.
-    candidates = session.scalars(
+def _assign_next_employee(session) -> SupportEmployee | None:
+    """Advance a DB-backed pointer. Caller must hold SQLite BEGIN IMMEDIATE."""
+    state = session.get(SupportAssignmentState, 1)
+    employees = session.scalars(
         select(SupportEmployee)
-        .where(SupportEmployee.active.is_(True), SupportEmployee.team == team)
-        .order_by(SupportEmployee.id)
+        .where(SupportEmployee.active.is_(True), SupportEmployee.employee_code.in_([f"EMP{i:03d}" for i in range(1, 8)]))
+        .order_by(SupportEmployee.employee_code)
     ).all()
-    if not candidates and team != "customer_support":
-        candidates = session.scalars(
-            select(SupportEmployee)
-            .where(SupportEmployee.active.is_(True), SupportEmployee.team == "customer_support")
-            .order_by(SupportEmployee.id)
-        ).all()
-    if not candidates:
+    if not employees:
         return None
-    open_counts = {
-        employee.id: session.query(Escalation).filter(
-            Escalation.assigned_employee_id == employee.id,
-            Escalation.status.in_(["assigned", "in_progress", "pending"]),
-        ).count()
-        for employee in candidates
-    }
-    eligible = [
-        employee for employee in candidates
-        if employee.max_open_tickets is None
-        or open_counts[employee.id] < employee.max_open_tickets
-    ]
-    return min(eligible or candidates, key=lambda employee: (open_counts[employee.id], employee.id)) if eligible else None
+    index = (state.next_employee_index if state else 0) % len(employees)
+    employee = employees[index]
+    if state is None:
+        state = SupportAssignmentState(id=1, next_employee_index=0)
+        session.add(state)
+    state.next_employee_index = (index + 1) % len(employees)
+    state.updated_at = utc_now()
+    return employee
 
 
-def create_support_escalation(
-    *,
-    user_id: str,
-    conversation_id: str,
-    category: str,
-    details: str,
-    priority: str = "normal",
-    customer_name: str | None = None,
-    customer_email: str | None = None,
-    customer_phone: str | None = None,
-    preferred_contact_method: str | None = None,
-    contact_consent: bool = False,
-    booking_id: int | None = None,
-) -> dict[str, Any]:
-    category = (category or "general").strip().casefold()
-    if category not in VALID_CATEGORIES:
-        category = "general"
-    if not user_id or not conversation_id:
-        return {"error": "A valid customer and conversation are required to create an escalation."}
-    if not details or not details.strip():
-        return {"error": "Please provide a short description of the issue."}
-    if len(details) > 4000:
-        return {"error": "Please keep the issue description under 4,000 characters."}
-    if contact_consent:
-        valid, error = _valid_contact(preferred_contact_method, customer_email, customer_phone)
-        if not valid:
-            return {"error": error}
-    else:
-        customer_email = None
-        customer_phone = None
+def create_support_escalation(*, user_id: str, conversation_id: str, category: str,
+    details: str, priority: str = "normal", customer_name: str | None = None,
+    customer_email: str | None = None, customer_phone: str | None = None,
+    preferred_contact_method: str | None = None, contact_consent: bool = False,
+    booking_id: int | None = None) -> dict[str, Any]:
+    category = (category or "general").casefold().strip()
+    priority = (priority or "normal").casefold().strip()
+    if category not in VALID_CATEGORIES: category = "general"
+    if priority not in VALID_PRIORITIES: priority = "normal"
+    if not user_id or not conversation_id or not details or not details.strip():
+        return {"error": "A customer, conversation and issue summary are required."}
+    if len(details) > 4000: return {"error": "Issue summary must be 4,000 characters or fewer."}
+    if booking_id is not None:
+        try:
+            booking_id = int(booking_id)
+            if booking_id < 1: booking_id = None
+        except (TypeError, ValueError): booking_id = None
+    customer_email = (customer_email or "").strip()[:254] or None
+    customer_phone = (customer_phone or "").strip()[:30] or None
+    customer_name = (customer_name or "").strip()[:150] or None
+    if customer_email and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", customer_email):
+        return {"error": "The email address is invalid. Please correct it or skip it."}
+    if customer_phone and not 7 <= len(re.sub(r"\D", "", customer_phone)) <= 15:
+        return {"error": "The phone number is invalid. Please correct it or skip it."}
+    if preferred_contact_method not in {None, "email", "phone"}:
         preferred_contact_method = None
-
+    if preferred_contact_method == "email" and not customer_email: preferred_contact_method = None
+    if preferred_contact_method == "phone" and not customer_phone: preferred_contact_method = None
     try:
         with SessionLocal() as session:
-            # A pending ticket from the same conversation is reused to protect
-            # against accidental duplicate tool calls/retries.
-            existing = session.scalar(
-                select(Escalation)
-                .where(
-                    Escalation.user_id == user_id,
-                    Escalation.conversation_id == conversation_id,
-                    Escalation.status.in_(["pending", "assigned", "in_progress"]),
-                )
-                .order_by(Escalation.id.desc())
-            )
+            # Serialize deduplication + assignment + insert on SQLite.
+            session.execute(text("BEGIN IMMEDIATE"))
+            existing = session.scalar(select(Escalation).where(
+                Escalation.user_id == user_id,
+                Escalation.conversation_id == conversation_id,
+                Escalation.status.in_(["pending", "assigned", "in_progress"]),
+            ).order_by(Escalation.id.desc()))
             if existing:
-                return {
-                    "escalation_id": existing.id,
-                    "status": existing.status,
+                result = {"escalation_id": existing.id, "status": existing.status,
                     "slack_status": existing.slack_status,
                     "assigned_employee_name": existing.assigned_employee.name if existing.assigned_employee else None,
-                    "message": "Your support request is already recorded.",
-                }
-
-            employee = _assign_employee(session, category)
+                    "message": "Your support request is already recorded."}
+                session.rollback()
+                return result
+            employee = _assign_next_employee(session)
             record = Escalation(
-                user_id=user_id,
-                conversation_id=conversation_id,
-                reason=category,
-                details=details.strip(),
-                priority=priority if priority in {"low", "normal", "high", "urgent"} else "normal",
-                status="assigned" if employee else "pending",
-                customer_name=(customer_name or "").strip()[:150] or None,
-                customer_email=(customer_email or "").strip()[:254] or None,
-                customer_phone=(customer_phone or "").strip()[:30] or None,
-                preferred_contact_method=preferred_contact_method if contact_consent else None,
-                contact_consent=bool(contact_consent),
-                booking_id=booking_id,
-                assigned_employee=employee,
-                slack_status="pending",
-            )
-            session.add(record)
-            session.commit()
-            session.refresh(record)
-
-            employee_name = employee.name if employee else None
-            employee_team = employee.team if employee else None
-            ticket = {
-                "escalation_id": record.id,
-                "user_id": user_id,
-                "reason": category,
-                "details": record.details,
-                "priority": record.priority,
-                "status": record.status,
-                "customer_name": record.customer_name,
-                "customer_email": record.customer_email,
-                "customer_phone": record.customer_phone,
-                "preferred_contact_method": record.preferred_contact_method,
-                "assigned_employee_name": employee_name,
-                "assigned_team": employee_team,
-                "booking_id": booking_id,
-            }
-            # Commit the support ticket before calling an external service.
+                user_id=user_id, conversation_id=conversation_id, reason=category,
+                details=details.strip(), priority=priority,
+                status="assigned" if employee else "pending", customer_name=customer_name,
+                customer_email=customer_email, customer_phone=customer_phone,
+                preferred_contact_method=preferred_contact_method,
+                contact_consent=bool(contact_consent), booking_id=booking_id,
+                assigned_employee=employee, slack_status="pending")
+            session.add(record); session.commit(); session.refresh(record)
+            ticket = {"escalation_id": record.id, "user_id": user_id, "reason": category,
+                "details": record.details, "priority": priority, "status": record.status,
+                "customer_name": customer_name, "customer_email": customer_email,
+                "customer_phone": customer_phone, "preferred_contact_method": preferred_contact_method,
+                "contact_consent": bool(contact_consent),
+                "assigned_employee_name": employee.name if employee else None,
+                "assigned_employee_code": employee.employee_code if employee else None,
+                "assigned_team": employee.team if employee else None, "booking_id": booking_id}
             notification = send_escalation_to_slack(ticket)
             record.slack_status = "sent" if notification["sent"] else "failed"
             record.slack_message_ts = notification.get("message_ts")
             record.notification_error = notification.get("error")
-            record.updated_at = utc_now()
-            session.commit()
-
-            return {
-                "escalation_id": record.id,
-                "status": record.status,
+            record.updated_at = utc_now(); session.commit()
+            return {"escalation_id": record.id, "status": record.status,
                 "slack_status": record.slack_status,
-                "assigned_employee_name": employee_name,
-                "assigned_team": employee_team,
-                "notification_error": notification.get("error"),
-                "message": (
-                    "Your request has been recorded and the support team was notified."
-                    if notification["sent"]
-                    else "Your request has been saved. The Slack notification could not be confirmed; the support record is retained."
-                ),
-            }
+                "assigned_employee_name": employee.name if employee else None,
+                "assigned_employee_code": employee.employee_code if employee else None,
+                "assigned_team": employee.team if employee else None,
+                "message": "Your support ticket was created and Slack confirmed delivery." if notification["sent"]
+                    else "Your support ticket was saved, but Slack delivery could not be confirmed."}
     except SQLAlchemyError:
-        return {"error": "Your support request could not be saved because of a database error. Please try again."}
+        return {"error": "The support request could not be saved because of a database error."}

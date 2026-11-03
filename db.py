@@ -6,7 +6,7 @@ from typing import Any
 
 from sqlalchemy import inspect, text
 
-from models import Base, engine
+from models import Base, engine, SupportEmployee, SupportAssignmentState
 
 DATA_DIR = Path(__file__).parent
 MOVIES_PATH = DATA_DIR / "movies_normalized.csv"
@@ -17,6 +17,17 @@ CATALOG_REVISION = "normalized-catalog-2026-11-v1"
 BOOKING_IDEMPOTENCY_REVISION = "booking-idempotency-v1"
 EXPECTED_IDS = set(range(1, 121))
 MIN_SCREEN_GAP_MINUTES = 150
+
+
+DEFAULT_SUPPORT_EMPLOYEES = [
+    {"employee_code": "EMP001", "name": "Ritik Mishra", "team": "customer_support", "email": "ritik.mishra@example.invalid"},
+    {"employee_code": "EMP002", "name": "Khushi Patel", "team": "customer_support", "email": "khushi.patel@example.invalid"},
+    {"employee_code": "EMP003", "name": "Sairam Madduri", "team": "customer_support", "email": "sairam.madduri@example.invalid"},
+    {"employee_code": "EMP004", "name": "Anshika Dixit", "team": "customer_support", "email": "anshika.dixit@example.invalid"},
+    {"employee_code": "EMP005", "name": "Akash Sahoo", "team": "customer_support", "email": "akash.sahoo@example.invalid"},
+    {"employee_code": "EMP006", "name": "Devyani Patil", "team": "customer_support", "email": "devyani.patil@example.invalid"},
+    {"employee_code": "EMP007", "name": "Ayush Singh", "team": "customer_support", "email": "ayush.singh@example.invalid"},
+]
 
 
 def _read_csv(path: Path, expected_headers: list[str]) -> list[dict[str, str]]:
@@ -392,11 +403,39 @@ def _upgrade_escalation_schema() -> None:
             {"revision": ESCALATION_SUPPORT_REVISION},
         )
 
+def _upgrade_support_roster_schema() -> None:
+    table_names = set(inspect(engine).get_table_names())
+    if "support_employees" in table_names:
+        columns = {c["name"] for c in inspect(engine).get_columns("support_employees")}
+        if "employee_code" not in columns:
+            with engine.begin() as connection:
+                connection.exec_driver_sql("ALTER TABLE support_employees ADD COLUMN employee_code VARCHAR(20)")
+    Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "CREATE TABLE IF NOT EXISTS support_assignment_state "
+            "(id INTEGER PRIMARY KEY, next_employee_index INTEGER NOT NULL DEFAULT 0, updated_at DATETIME)"
+        )
+        connection.exec_driver_sql(
+            "INSERT OR IGNORE INTO support_assignment_state (id, next_employee_index) VALUES (1, 0)"
+        )
+        existing = {row[0] for row in connection.exec_driver_sql(
+            "SELECT employee_code FROM support_employees WHERE employee_code IS NOT NULL"
+        ).all()}
+        for employee in DEFAULT_SUPPORT_EMPLOYEES:
+            if employee["employee_code"] not in existing:
+                connection.execute(text(
+                    "INSERT INTO support_employees (employee_code, name, team, email, active) "
+                    "VALUES (:employee_code, :name, :team, :email, 1)"
+                ), employee)
+
+
 def initialize_database() -> None:
     movies, showtimes = _read_normalized_data()
     _migrate_normalized_schema_if_needed()
     _upgrade_persistent_schema()
     _upgrade_escalation_schema()
+    _upgrade_support_roster_schema()
 
     _import_catalog_if_needed(movies, showtimes)
     with engine.begin() as connection:

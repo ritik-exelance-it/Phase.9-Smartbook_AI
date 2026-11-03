@@ -139,10 +139,19 @@ class ConversationMessage(Base):
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
 
+class SupportAssignmentState(Base):
+    __tablename__ = "support_assignment_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    next_employee_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
 class SupportEmployee(Base):
     __tablename__ = "support_employees"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    employee_code: Mapped[str | None] = mapped_column(String(20), nullable=True, unique=True)
     name: Mapped[str] = mapped_column(String(150), nullable=False)
     team: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     email: Mapped[str | None] = mapped_column(String(254), nullable=True)
