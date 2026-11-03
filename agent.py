@@ -23,6 +23,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 
 from middleware import validate_message
 from knowledge import retrieve_knowledge
+from tmdb_tools import search_external_movie_metadata, get_external_movie_metadata
 from tools import (
     list_movies,
     list_available_movies,
@@ -43,6 +44,9 @@ Intent = Literal[
     "unsupported_movie_filter",
     "movie_search",
     "movie_details",
+    "external_movie_search",
+    "external_movie_details",
+    "movie_question",
     "book_ticket",
     "confirm_booking",
     "list_bookings",
@@ -64,6 +68,7 @@ class AgentState(TypedDict, total=False):
     conversation_id: str
     intent: str
     movie_id: Optional[int]
+    tmdb_id: Optional[int]
     movie_title: Optional[str]
     movie_genre: Optional[str]
     unsupported_movie_filter: Optional[str]
@@ -77,6 +82,7 @@ class AgentState(TypedDict, total=False):
     booking_period: str
     active_movie_id: Optional[int]
     active_movie_title: Optional[str]
+    active_movie_metadata: dict
     pending_booking: bool
     booking_missing_details: list[str]
     booking_showtime_options: list[dict]
@@ -100,6 +106,7 @@ class AgentState(TypedDict, total=False):
 class ClassifiedIntent(BaseModel):
     intent: Intent
     movie_id: Optional[int] = Field(default=None, description="Movie ID, never a booking ID.")
+    tmdb_id: Optional[int] = Field(default=None, description="TMDB external metadata ID only; never a local movie or booking ID.")
     movie_title: Optional[str] = Field(default=None, description="Movie title explicitly stated or clearly referenced.")
     movie_genre: Optional[str] = Field(default=None, description="Genre explicitly requested for a movie listing.")
     unsupported_movie_filter: Optional[str] = Field(default=None, description="Requested catalogue filter not stored by the backend.")
@@ -110,7 +117,7 @@ class ClassifiedIntent(BaseModel):
     seats: Optional[int] = Field(default=None, description="Number of tickets.")
     booking_id: Optional[int] = Field(default=None, description="Existing booking ID, never a movie ID.")
 
-    @field_validator("movie_id", "seats", "booking_id", "showtime_id", mode="before")
+    @field_validator("movie_id", "tmdb_id", "seats", "booking_id", "showtime_id", mode="before")
     @classmethod
     def normalize_optional_integers(cls, value):
         if value is None:
@@ -132,7 +139,7 @@ class ClassifiedIntent(BaseModel):
             raise ValueError("Seats must be at least 1.")
         return value
 
-    @field_validator("movie_id", "booking_id", "showtime_id")
+    @field_validator("movie_id", "tmdb_id", "booking_id", "showtime_id")
     @classmethod
     def ids_must_be_positive(cls, value):
         if value is not None and value < 1:
@@ -150,6 +157,7 @@ class ClassifiedIntent(BaseModel):
 model_name = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 llm = ChatOpenRouter(model=model_name, temperature=0, max_retries=2,timeout=30*1_000,)
 classifier_llm = llm.with_structured_output(ClassifiedIntent)
+
 escalation_analysis_llm = llm.with_structured_output(EscalationIntentAnalysis)
 
 checkpoint_path = Path(
@@ -176,7 +184,9 @@ or quantities.
 Intents:
 - list_movies: asks for the movie catalogue or movies in a genre
 - list_available_movies: asks which scheduled movies currently have seats available
-- movie_details: asks about a specific movie
+- movie_details: asks about a specific movie in the local cinema catalogue or its screenings
+- external_movie_search: asks for general film metadata, plot, release year, rating, or poster for a title; use this when external metadata is requested, not for cinema availability
+- external_movie_details: asks for more external metadata and supplies a TMDB movie ID explicitly
 - book_ticket: wants to make a booking
 - confirm_booking: explicitly confirms a previously summarized booking
 - list_bookings: lists the current customer's bookings
@@ -196,6 +206,22 @@ Extract requested screening dates and times when provided; never infer them.
 Never treat a request to book as permission to create the booking immediately.
 Booking creation requires a separate affirmative response to a verified summary.
 """
+
+_MOVIE_METADATA_REQUEST = re.compile(
+    r"\b(?:age\s+limit|age\s+rating|certification|certified|rated|rating|"
+    r"plot|storyline|overview|release\s+date|release\s+year|runtime|poster)\b"
+)
+_MOVIE_ABOUT_REQUEST = re.compile(
+    r"\b(?:tell\s+me\s+about|more\s+about|information\s+about|details\s+about|"
+    r"what\s+about)\b"
+)
+_MOVIE_REFERENCE = re.compile(r"\b(?:this|that|it)\s+(?:movie|film)?\b")
+_MOVIE_FOLLOWUP_QUESTION = re.compile(
+    r"\b(?:should\s+i|would\s+i|would\s+you|is\s+it|is\s+this|"
+    r"can\s+i|could\s+i|does\s+it|do\s+you|who\s+is|where\s+was|"
+    r"family|families|kids|children|child|suitable|appropriate|"
+    r"scary|frightening|worth\s+watching|recommend)\b"
+)
 
 
 def _safe_role(role: str) -> str:
@@ -476,6 +502,32 @@ def _catalogue_request(message: str, role: str) -> dict | None:
             }
 
     return None
+
+
+def _external_metadata_request(
+    message: str,
+    role: str,
+    active_movie_title: str | None,
+) -> dict | None:
+    normalized = message.casefold()
+    asks_metadata = bool(
+        _MOVIE_METADATA_REQUEST.search(normalized)
+        or _MOVIE_ABOUT_REQUEST.search(normalized)
+    )
+    if not asks_metadata:
+        return None
+
+    matches = _movie_title_matches(message, role)
+    if len(matches) == 1:
+        title = matches[0]["title"]
+    elif active_movie_title and (
+        _MOVIE_REFERENCE.search(normalized)
+        or _MOVIE_ABOUT_REQUEST.search(normalized)
+    ):
+        title = active_movie_title
+    else:
+        return None
+    return {"intent": "external_movie_search", "movie_title": title}
 
 
 def _booking_lookup_request(message: str) -> bool:
@@ -786,6 +838,47 @@ def classify_node(state: AgentState) -> dict:
         }
 
     is_booking_request = _ticket_booking_request(message, role)
+    active_movie_title = state.get("active_movie_title") or state.get("movie_title")
+    if (
+        not is_booking_request
+        and active_movie_title
+        and _MOVIE_FOLLOWUP_QUESTION.search(normalized)
+        and not re.search(r"\b(?:recommend|suggest)\s+(?:me\s+)?(?:a|some)?\s*(?:movies?|films?)\b", normalized)
+        and not re.search(r"\b(?:movies|films)\s+(?:playing|available|showing)\b", normalized)
+    ):
+        return {
+            "intent": "movie_question",
+            "movie_title": active_movie_title,
+            "active_movie_metadata": state.get("active_movie_metadata", {}),
+            "pending_action": None,
+            "pending_booking": False,
+            "booking_confirmation_pending": False,
+            "prepared_booking": {},
+            "error": "",
+        }
+    metadata_request = (
+        None
+        if is_booking_request
+        else _external_metadata_request(
+            message,
+            role,
+            active_movie_title,
+        )
+    )
+    if metadata_request:
+        return {
+            **metadata_request,
+            "movie_id": None,
+            "tmdb_id": None,
+            "movie_genre": None,
+            "booking_id": None,
+            "pending_action": None,
+            "pending_booking": False,
+            "booking_confirmation_pending": False,
+            "prepared_booking": {},
+            "booking_movie_confirmation_pending": False,
+            "error": "",
+        }
     catalogue_request = None if is_booking_request else _catalogue_request(message, role)
     if (
         pending_booking
@@ -1268,6 +1361,7 @@ def classify_node(state: AgentState) -> dict:
     return {
         "intent": parsed.intent,
         "movie_id": movie_id,
+        "tmdb_id": parsed.tmdb_id,
         "movie_title": movie_title,
         "movie_genre": parsed.movie_genre,
         "customer_name": parsed.customer_name,
@@ -1347,6 +1441,23 @@ def execute_node(state: AgentState) -> dict:
         elif intent == "unsupported_movie_filter":
             data = state.get("result_data") or {
                 "error": "This movie filter is not available in the catalogue."
+            }
+        elif intent == "external_movie_search":
+            title = state.get("movie_title")
+            data = search_external_movie_metadata(title or "")
+        elif intent == "external_movie_details":
+            # This ID is a TMDB ID, never a local SQLite movie ID.
+            tmdb_id = state.get("tmdb_id")
+            if tmdb_id is None:
+                data = {
+                    "error": "A TMDB movie ID is required for external movie details.",
+                    "source": "TMDB",
+                }
+            else:
+                data = get_external_movie_metadata(tmdb_id)
+        elif intent == "movie_question":
+            data = state.get("active_movie_metadata") or {
+                "error": "I don't have verified details for the selected movie yet."
             }
         elif intent == "movie_details":
             data = movie_details(
@@ -1705,6 +1816,15 @@ def execute_node(state: AgentState) -> dict:
 
         if not isinstance(data, dict):
             data = {"result": str(data)}
+        if intent in {"external_movie_search", "external_movie_details"}:
+            movie = data.get("movie")
+            if isinstance(movie, dict):
+                return {
+                    "result_data": data,
+                    "context": "",
+                    "active_movie_metadata": movie,
+                    "active_movie_title": movie.get("title") or state.get("active_movie_title"),
+                }
         return {"result_data": data, "context": ""}
 
     except PermissionError as exc:
@@ -1896,6 +2016,14 @@ def respond_node(state: AgentState) -> dict:
         lines.append("To cancel a booking, ask me to cancel it and confirm the booking ID.")
         return {"response": "\n".join(lines)}
 
+    if state.get("intent") in {"external_movie_search", "external_movie_details"} and data.get("error"):
+        return {
+            "response": (
+                "I couldn't verify external movie information. "
+                f"{data['error']}"
+            )
+        }
+
     if data.get("error"):
         return {"response": str(data["error"])}
 
@@ -1911,6 +2039,114 @@ def respond_node(state: AgentState) -> dict:
                 f"{screening['price_per_seat']:.2f} per seat."
             )
         return {"response": "\n".join(lines)}
+
+    if state.get("intent") == "movie_question":
+        movie = data.get("movie", data)
+        if data.get("error"):
+            return {"response": f"I can't verify that yet: {data['error']}"}
+        facts = {
+            key: movie.get(key)
+            for key in (
+                "title", "overview", "genres", "release_year",
+                "runtime_minutes", "rating", "certifications",
+            )
+            if movie.get(key) is not None
+        }
+        prompt = f"""
+Answer the user's latest question about the selected movie directly and
+conversationally. Do not repeat the full movie summary or list every metadata
+field. Base factual claims only on the verified metadata below. You may offer
+clearly labeled practical opinion, but do not present it as an official rating.
+Certifications vary by country; never infer a viewer's country or ages. If the
+metadata is insufficient for a firm recommendation, say so and ask one useful
+follow-up.
+
+Latest question: {state.get('user_message', '')}
+Selected movie: {json.dumps(facts, ensure_ascii=False, default=str)}
+"""
+        try:
+            answer = llm.invoke(prompt).content
+            if isinstance(answer, str) and answer.strip():
+                return {"response": answer.strip()}
+        except Exception:
+            logger.exception("Movie follow-up response generation failed")
+
+        title = movie.get("title") or "This movie"
+        genres = ", ".join(movie.get("genres") or [])
+        certifications = movie.get("certifications") or []
+        if re.search(r"\b(?:family|families|kids|children|child)\b", state.get("user_message", "").casefold()):
+            rating_summary = ", ".join(
+                f"{item['country_code']}: {item['certification']}"
+                for item in certifications
+                if item.get("country_code") and item.get("certification")
+            )
+            rating_note = (
+                f" Listed certifications include {rating_summary}."
+                if rating_summary else " I couldn't verify a listed age certification."
+            )
+            return {
+                "response": (
+                    f"{title} is listed as {genres or 'a movie'}."
+                    f"{rating_note} Since suitability depends on viewers' ages and "
+                    "your country's rating system, check the local rating; "
+                    "tell me the viewers' ages and country for a more specific suggestion."
+                )
+            }
+        return {
+            "response": (
+                f"I don't have enough verified information to answer that specifically "
+                f"about {title}. You can ask about its synopsis, genres, runtime, or "
+                "country-specific age certifications."
+            )
+        }
+
+    if state.get("intent") in {"external_movie_search", "external_movie_details"}:
+        if data.get("error"):
+            return {
+                "response": (
+                    "I couldn't verify external movie information. "
+                    f"{data['error']}"
+                )
+            }
+        movie = data.get("movie")
+        if movie:
+            lines = [movie.get("title") or "Movie information"]
+            if movie.get("overview"):
+                lines.append(movie["overview"])
+            genres = movie.get("genres")
+            if genres:
+                lines.append(f"Genres: {', '.join(genres)}")
+            if movie.get("release_year"):
+                lines.append(f"Release year: {movie['release_year']}")
+            if movie.get("runtime_minutes"):
+                lines.append(f"Runtime: {movie['runtime_minutes']} minutes")
+            if movie.get("rating") is not None:
+                lines.append(f"TMDB user rating: {movie['rating']}/10")
+            certifications = movie.get("certifications") or []
+            if certifications:
+                ratings = ", ".join(
+                    f"{item['country_code']}: {item['certification']}"
+                    for item in certifications
+                )
+                lines.append(f"Age rating/certification by country: {ratings}")
+                lines.append("Ratings vary by country; there is no single universal age limit.")
+            elif data.get("details_error"):
+                lines.append(f"Age rating couldn't be loaded: {data['details_error']}")
+            else:
+                lines.append("TMDB has no age certification listed for this movie.")
+            lines.append("Movie metadata from TMDB; certification information may vary by country.")
+            return {"response": "\n".join(lines)}
+
+        candidates = data.get("movies")
+        if candidates:
+            lines = ["I found multiple possible movie matches. Which one did you mean?"]
+            lines.extend(
+                f"- {item['title']}"
+                + (f" ({item['release_year']})" if item.get("release_year") else "")
+                for item in candidates
+            )
+            return {"response": "\n".join(lines)}
+        return {"response": "TMDB didn't return any matching movie information."}
 
     if state.get("intent") in {"book_ticket", "confirm_booking"} and data.get("status") == "confirmed":
         return {

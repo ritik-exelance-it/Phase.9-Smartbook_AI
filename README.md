@@ -106,7 +106,16 @@ These are roadmap items, not implemented functionality. The current booking canc
 - New tickets use a persistent global round-robin pointer across the active seeded employees, independent of category. The ticket is committed before Slack delivery; notification failures remain visible in `slack_status`. Duplicate open tickets in the same customer/conversation do not consume another assignment slot.
 - Slack messages use Block Kit and include ticket/category/priority, customer and booking details, assignment, issue summary and consent status. Keep the destination channel private and limited to authorized support staff.
 
-### Future roadmap (not implemented)
+
+## TMDB movie information
+
+- Set `TMDB_READ_ACCESS_TOKEN` in `.env` to enable read-only TMDB metadata. Without it, external movie questions return a clear configuration message; the cinema catalogue and booking tools continue to work.
+- After a movie is selected, ask “tell me about this” for its external overview, or ask for its age rating, runtime, release year, or poster. Age classifications are reported by country from TMDB release-date data; they are not converted into a universal minimum age.
+- Follow-up questions such as “should I watch this with my family?” use the selected movie's cached synopsis, genres, and country-specific certifications to answer the new question directly rather than repeating the entire movie summary. Recommendations are guidance, not official ratings; share viewer ages and country for a more relevant suitability answer.
+- Local screenings, availability, prices, and bookings remain sourced from the cinema database. TMDB metadata does not verify cinema availability.
+- This product uses the TMDB API but is not endorsed or certified by TMDB.
+
+# Future roadmap (not implemented)
 
 **Email fallback:** add verified employee email addresses, configurable recipient mapping, Slack-failure fallback, retry/backoff, delivery audit records and alerting for failed notifications.
 

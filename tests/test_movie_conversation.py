@@ -3,7 +3,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from uuid import uuid4
 
 import agent
@@ -562,6 +562,79 @@ class MovieConversationTests(unittest.TestCase):
         self.assertIsNotNone(playing)
         assert playing is not None
         self.assertEqual(playing["intent"], "list_available_movies")
+
+    def test_metadata_followups_use_the_active_movie_instead_of_catalogue_filters(self):
+        for message in ("tell me about this", "what's the age limit on this movie"):
+            with self.subTest(message=message), patch(
+                "agent._movie_title_matches", return_value=[]
+            ):
+                state = agent.classify_node({
+                    "user_message": message,
+                    "role": "customer",
+                    "active_movie_title": "The Devil's Mouth",
+                })
+            self.assertEqual(state["intent"], "external_movie_search")
+            self.assertEqual(state["movie_title"], "The Devil's Mouth")
+
+    def test_family_followup_answers_latest_question_using_cached_movie_facts(self):
+        question = "should i watch with my family?"
+        movie = {
+            "title": "The Devil's Mouth",
+            "overview": "Friends face a dangerous predator in submerged caves.",
+            "genres": ["Horror", "Thriller"],
+            "certifications": [
+                {"country_code": "IN", "certification": "UA"},
+                {"country_code": "US", "certification": "PG-13"},
+            ],
+        }
+        conversation_state = {
+            "user_message": question,
+            "role": "customer",
+            "active_movie_title": movie["title"],
+            "active_movie_metadata": movie,
+        }
+        state = agent.classify_node(conversation_state)
+        self.assertEqual(state["intent"], "movie_question")
+        executed = agent.execute_node(conversation_state | state)
+        answer_llm = Mock()
+        answer_llm.invoke.return_value = Mock(
+            content=(
+                "It may work for teens who enjoy horror, but may be too intense "
+                "for younger children. Check your local age rating."
+            )
+        )
+        with patch("agent.llm", answer_llm):
+            response = agent.respond_node(conversation_state | state | executed)["response"]
+
+        self.assertIn("teens", response)
+        self.assertNotIn("Release year:", response)
+        self.assertNotIn("TMDB user rating:", response)
+        self.assertNotIn("Age rating/certification by country:", response)
+        prompt = answer_llm.invoke.call_args.args[0]
+        self.assertIn(question, prompt)
+        self.assertIn("The Devil's Mouth", prompt)
+        self.assertIn("Certifications vary by country", prompt)
+
+    def test_external_movie_response_reports_country_certification_without_inference(self):
+        response = agent.respond_node({
+            "intent": "external_movie_search",
+            "user_message": "what's the age limit on this movie",
+            "result_data": {
+                "source": "TMDB",
+                "movie": {
+                    "title": "The Devil's Mouth",
+                    "overview": "A verified movie synopsis.",
+                    "certifications": [
+                        {"country_code": "IN", "certification": "UA"},
+                        {"country_code": "US", "certification": "PG-13"},
+                    ],
+                },
+            },
+        })["response"]
+        self.assertIn("IN: UA", response)
+        self.assertIn("US: PG-13", response)
+        self.assertIn("Ratings vary by country", response)
+        self.assertNotIn("18+", response)
 
     def test_booking_confirmation_is_a_separate_turn(self):
         thread_id = f"booking-confirmation-{uuid4()}"
