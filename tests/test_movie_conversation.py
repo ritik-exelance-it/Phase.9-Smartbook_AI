@@ -587,7 +587,7 @@ class MovieConversationTests(unittest.TestCase):
                 {"country_code": "US", "certification": "PG-13"},
             ],
         }
-        conversation_state = {
+        conversation_state: agent.AgentState = {
             "user_message": question,
             "role": "customer",
             "active_movie_title": movie["title"],
@@ -595,7 +595,8 @@ class MovieConversationTests(unittest.TestCase):
         }
         state = agent.classify_node(conversation_state)
         self.assertEqual(state["intent"], "movie_question")
-        executed = agent.execute_node(conversation_state | state)
+        conversation_state.update(state)
+        executed = agent.execute_node(conversation_state)
         answer_llm = Mock()
         answer_llm.invoke.return_value = Mock(
             content=(
@@ -603,8 +604,9 @@ class MovieConversationTests(unittest.TestCase):
                 "for younger children. Check your local age rating."
             )
         )
+        conversation_state.update(executed)
         with patch("agent.llm", answer_llm):
-            response = agent.respond_node(conversation_state | state | executed)["response"]
+            response = agent.respond_node(conversation_state)["response"]
 
         self.assertIn("teens", response)
         self.assertNotIn("Release year:", response)
